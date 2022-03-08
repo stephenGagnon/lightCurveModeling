@@ -1,0 +1,4 @@
+name = "lightCurveModeling"
+uuid = "bbb4d786-ea76-4613-b8bd-e0066326f386"
+authors = ["Stephen Gagnon <srgagnon@buffalo.edu>"]
+version = "0.1.0"
