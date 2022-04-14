@@ -188,7 +188,7 @@ function simpleSatellite(;vectorized = false)
     return simpleStruct, fullStruct
 end
 
-function customSatellite(satParams; vectorized = false)
+function customSatellite(objParams; vectorized = false)
 
     (satSimple, satFullSimple) = simpleSatellite(vectorized = vectorized )
 
@@ -215,7 +215,7 @@ function simpleScenario(;vectorized = false)
     C = 455.0 #W/m^2
 
     # number of observers
-    obsNo = 4
+    obsNo = 5
 
     # distance from observer to RSO
     # obsDist = 35000*1000*ones(1,obsNo)

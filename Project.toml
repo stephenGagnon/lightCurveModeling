@@ -2,3 +2,7 @@ name = "lightCurveModeling"
 uuid = "bbb4d786-ea76-4613-b8bd-e0066326f386"
 authors = ["Stephen Gagnon <srgagnon@buffalo.edu>"]
 version = "0.1.0"
+
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+attitudeFunctions = "7493c2ef-4a11-4f18-aeab-b8ca9ae8f56a"

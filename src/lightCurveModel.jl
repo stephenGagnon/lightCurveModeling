@@ -170,7 +170,7 @@ function _Fobs(att :: anyAttitude, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uvm :
                 # calculate numerator and account for the case where the half angle
                 # vector lines up with the normal vector
 
-                if (1 - dot(uh,un)) < .00001 #(dot(uh,un))≈1
+                if (dot(uh,un))≈1 #(1 - dot(uh,un)) < .00001 #
                     pspecnum = sqrt((nu[i] + 1)*(nv[i] + 1))*
                     (Rspec[i] + (1 - Rspec[i])*(1 - dot(uh,usun))^5)/(8*pi)
                 else

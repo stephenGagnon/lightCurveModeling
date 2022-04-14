@@ -20,6 +20,8 @@ struct targetObject
     Rspec :: MatOrVec
     J :: Mat
     bodyFrame :: MatOrVecs
+    targetObject() = new()
+    targetObject(facetNo, Areas, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame) = new(facetNo, Areas, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame)
 end
 
 struct targetObjectFull
@@ -36,6 +38,8 @@ struct targetObjectFull
     Rspec :: MatOrVec
     J :: Mat
     bodyFrame :: MatOrVecs
+    targetObjectFull() = new()
+    targetObjectFull(facetNo, vertices, vertList, Areas, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame) = new(facetNo, Areas, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame)
 end
 
 struct spaceScenario
@@ -44,4 +48,6 @@ struct spaceScenario
     d :: MatOrVec
     sunVec :: Vec
     obsVecs :: MatOrVecs
+    spaceScenario() = new()
+    spaceScenario(obsNo, C, d, sunVec, obsVecs) = new(obsNo, C, d, sunVec, obsVecs)
 end
