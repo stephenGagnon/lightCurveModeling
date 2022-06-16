@@ -215,7 +215,7 @@ function simpleScenario(;vectorized = false)
     C = 455.0 #W/m^2
 
     # number of observers
-    obsNo = 5
+    obsNo = 4
 
     # distance from observer to RSO
     # obsDist = 35000*1000*ones(1,obsNo)
@@ -293,6 +293,97 @@ function simpleScenarioGenerator(;vectorized = false)
     return sat, satFull, scenario
 end
 
+function objectGenerator2D()
+
+    obsvecs = Array{Array{Float64,1},1}(undef,2)
+    obsvecs[1] = [1;1]./norm([1;1])
+    obsvecs[2] = [1;-1]./norm([1;-1])
+
+    facetNo = 3
+
+    # side lengths
+    L = [3,4,5]
+    # in 2D length is the analogue of area
+    Area = L
+
+    p1 = [L[1] 0]
+    p2 = [0 0]
+    p3 = [0 -L[2]]
+
+    verts = [p1;p2;p3]
+    vertList = [[2,1],[3,2],[1,3]]
+
+    # in-plane geometry
+    # side normals
+    nvecs = Array{Array{Float64,1},1}(undef,facetNo)
+    uvecs = Array{Array{Float64,1},1}(undef,facetNo)
+    # create empty unused array for vvecs
+    vvecs = Array{Array{Float64,1},1}(undef,0)
+
+    for i = 1:facetNo
+        temp = verts[vertList[i][2],:] - verts[vertList[i][1],:]
+        temp = temp./norm(temp)
+        uvecs[i] = temp
+        temp = reverse(temp)
+        temp[1] = - temp[1]
+        nvecs[i] = temp
+    end
+
+    # in plane parameters
+    # nu = [1000 1000 1000];
+    # nv = [1000 1000 1000];
+    nu = 1000*ones(1,facetNo)
+    nv = 1000*ones(1,facetNo)
+
+    # spectral and diffusion parameters
+    Rdiff = .5*ones(1,facetNO);
+    # Rdiff = [.1 .2 .3];
+    # Rspec = [.4 .5 .6];
+    Rspec = .5*ones(1,facetNo);
+
+    bodyFrame = [1 0; 0 1]
+
+    Jx = (L[1]*L[2]^3)/12
+    Jy = (L[2]*L[1]^3)/12
+    J = [Jx 0 ; 0 Jy]
+
+    return targetObject(facetNo, Areas, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame), targetObjectFull(facetNo, verts, vertList, Area, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame)
+end
+
+function scenarioGenerator2D()
+    # C -- sun power per square meter
+    C = 455.0 #W/m^2
+
+    # number of observers
+    obsNo = 2
+
+    # distance from observer to RSO
+    # obsDist = 35000*1000*ones(1,obsNo)
+    obsDist = 35000*1000*ones(1,obsNo)
+
+    #body vectors from rso to observer (inertial)
+    r = sqrt(2)/2
+    obsVecs = [1  r  r  0 -r -r -1  0;
+               0  r -r  1 -r  r  0 -1]
+
+    obsVecs = obsVecs[:,1:obsNo]
+
+    # usun -- vector from rso to sun (inertial)
+    sunVec = [1.0; 0]
+
+    if !vectorized
+        obsvectemp = obsVecs
+        obsVecs = Array{Array{Float64,1},1}(undef,size(obsvectemp,2))
+
+        for i = 1:obsNo
+            obsVecs[i] = obsvectemp[:,i]
+        end
+
+        obsDist = obsDist[:]
+    end
+    return spaceScenario(obsNo,C,obsDist,sunVec,obsVecs)
+end
+
 function customScenarioGenerator(;scenParams = nothing, objParams = nothing, vectorized = false)
 
     (satSimple, satFullSimple) = simpleSatellite(vectorized = vectorized )
@@ -310,4 +401,37 @@ function customScenarioGenerator(;scenParams = nothing, objParams = nothing, vec
     end
 
     return sat, satFull, scenario
+end
+
+function attLMFIM(att, sat, scen, R, parameterization = quaternion)
+
+        if any(parameterization .== [MRP GRP quaternion])
+             if typeof(att) <: Union{MRP,GRP}
+                 rotFunc = ((A,v) -> any2A(A).A*v)
+             elseif typeof(att) == quaternion
+                 rotFunc = qRotate
+             elseif length(att) == 3
+                 rotFunc = ((A,v) -> p2A(A,a,f)*v)
+             elseif length(att) == 4
+                 rotFunc = qRotate
+             end
+        elseif parameterization == DCM
+            if typeof(att) == Matrix
+                rotFunc = ((A,v) -> A*v)
+            elseif typeof(att) == DCM
+                rotFunc = ((A,v) -> A.A*v)
+            end
+        elseif parameterization == att2D
+            if typeof(att) <: Real
+                rotFunc = ((tht,v) -> [cos(tht) sin(tht);-sin(tht) cos(tht)]*v)
+            elseif typeof(att) == att2D
+                rotFunc = ((tht,v) -> [cos(tht.tht) sin(tht.tht);-sin(tht.tht) cos(tht.tht)]*v)
+            end
+        else
+            error("Please provide a valid attitude. Attitudes must be represented as a single 3x1 or 4x1 float array, a 3x3 float array, or any of the custom attitude types defined in the attitudeFunctions package. For a 2D object, attitude can be representated as a real number or as a att2D struct.")
+        end
+
+    dhdx = ForwardDiff.jacobian(A -> _Fobs( A, sat.nvecs, sat.uvecs, sat.vvecs, sat.Areas, sat.nu, sat.nv, sat.Rdiff, sat.Rspec, scen.sunVec, scen.obsVecs, scen.d, scen.C, rotFunc), att)
+
+    FIM = dhdx'*inv(R)*dhdx
 end

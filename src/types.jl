@@ -1,12 +1,8 @@
-const Vec{T<:Number} = AbstractArray{T,1}
-const Mat{T<:Number} = AbstractArray{T,2}
-const ArrayOfVecs{T<:Number} = Array{V,1} where V <: Vec
-const ArrayofMats{T<:Number} = Array{M,1} where M <: Mat
-const VecOfArrayOfVecs{T<:Number} = Vector{Vector{Vector{T}}}
-const MatOrVecs = Union{Mat,ArrayOfVecs}
-const MatOrVec = Union{Mat,Vec}
-const anyAttitude = Union{Mat,Vec,DCM,MRP,GRP,quaternion}
-const Num = N where N <: Number
+const ArrayOfVecs{T<:Real} = Array{V,1} where {V <: Vector{T}}
+const ArrayofMats{T<:Real} = Array{M,1} where {M <: Matrix{T}}
+const VecOfArrayOfVecs{T<:Real} = Vector{Vector{Vector{T}}}
+const MatOrVecs{T <: Real} = Union{Matrix{T},ArrayOfVecs{T}}
+const MatOrVec{T <: Real} = Union{Matrix{T},Vector{T}}
 
 struct targetObject
     facetNo :: Int64
@@ -18,7 +14,7 @@ struct targetObject
     nv :: MatOrVec
     Rdiff :: MatOrVec
     Rspec :: MatOrVec
-    J :: Mat
+    J :: Matrix
     bodyFrame :: MatOrVecs
     targetObject() = new()
     targetObject(facetNo, Areas, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame) = new(facetNo, Areas, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame)
@@ -26,7 +22,7 @@ end
 
 struct targetObjectFull
     facetNo :: Int64
-    vertices :: Mat
+    vertices :: Matrix
     vertList
     Areas :: MatOrVec
     nvecs :: MatOrVecs
@@ -36,7 +32,7 @@ struct targetObjectFull
     nv :: MatOrVec
     Rdiff :: MatOrVec
     Rspec :: MatOrVec
-    J :: Mat
+    J :: Matrix
     bodyFrame :: MatOrVecs
     targetObjectFull() = new()
     targetObjectFull(facetNo, vertices, vertList, Areas, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame) = new(facetNo, Areas, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame)
@@ -44,9 +40,9 @@ end
 
 struct spaceScenario
     obsNo :: Int64
-    C :: N where {N <: Number}
+    C :: Number
     d :: MatOrVec
-    sunVec :: Vec
+    sunVec :: Vector
     obsVecs :: MatOrVecs
     spaceScenario() = new()
     spaceScenario(obsNo, C, d, sunVec, obsVecs) = new(obsNo, C, d, sunVec, obsVecs)
