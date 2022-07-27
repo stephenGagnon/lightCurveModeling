@@ -27,9 +27,9 @@
 
  OUTPUTS --------------------------------------------------------------
 
-  F -- total reflectance (Fobs)
+  F -- total reflected intensity (Fobs)
 
-  ptotal -- total brightness (rho)
+  ptotal -- total reflectance fraction (rho)
 
  CODE -----------------------------------------------------------------
 """
@@ -58,17 +58,18 @@ function Fobs(att :: anyAttitude, obj :: targetObject, scen :: spaceScenario, a=
 end
 
 # handles data input as vectors of vectors
-function _Fobs(att :: anyAttitude{T}, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uvm :: ArrayOfVecs, Area :: Vector, nu :: Vector, nv :: Vector, Rdiff :: Vector, Rspec :: Vector, usunI :: Vector, uobsI :: ArrayOfVecs, d :: Vector, C :: Float64, rotFunc) where {T <: Real}
+function _Fobs(att :: anyAttitude{T}, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uvm :: ArrayOfVecs, Area :: Vector, nu :: Vector, nv :: Vector, Rdiff :: Vector{T2}, Rspec :: Vector{T2}, usunI :: Vector, uobsI :: ArrayOfVecs, d :: Vector, C :: Float64, rotFunc :: Function) where {T <: Real, T2 <: Real}
 
     # rotate inertial vectors into the body frame for calculations
     (usun,uobst) = _toBodyFrame(att,usunI,uobsI,rotFunc)
     # Ftotal = Array{Float64,1}(undef,length(uobsI))
 
     # intialize intensity array where each element of the array corresponds to each observer
-    Ftotal = Array{T,1}(undef,length(uobst))
-    for n in eachindex(Ftotal)
-        Ftotal[n] = 0
-    end
+    Ftotal = zeros(T, length(uobst))
+    # Ftotal = Array{T,1}(undef,length(uobst))
+    # for n in eachindex(Ftotal)
+    #     Ftotal[n] = 0
+    # end
 
     # initialize array for half angle vectors
     uh = Array{T,1}(undef,length(usun))
@@ -102,6 +103,7 @@ function _Fobs(att :: anyAttitude{T}, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uv
                 # precalculate some dot products to save time
                 usdun = dot(usun,un)
                 uodun = dot(uobs,un)
+                uhdun = dot(uh,un)
 
                 # diffuse reflection
                 pdiff = ((28*Rdiff[i])/(23*pi))*(1 - Rspec[i])*(1 - (1 - usdun/2)^5)*(1 - (1 - uodun/2)^5)
@@ -109,10 +111,10 @@ function _Fobs(att :: anyAttitude{T}, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uv
                 # spectral reflection
 
                 # calculate numerator and account for the case where the half angle vector lines up with the normal vector
-                if (dot(uh,un))≈1 #(1 - dot(uh,un)) < .00001 #
+                if uhdun≈1 #(1 - dot(uh,un)) < .00001 #
                     pspecnum = sqrt((nu[i] + 1)*(nv[i] + 1))*(Rspec[i] + (1 - Rspec[i])*(1 - dot(uh,usun))^5)/(8*pi)
                 else
-                    pspecnum = sqrt((nu[i] + 1)*(nv[i] + 1))*(Rspec[i] + (1 - Rspec[i])*(1 - dot(uh,usun))^5)/(8*pi)*(dot(uh,un)^((nu[i]*dot(uh,uu)^2 + nv[i]*dot(uh,uv)^2)/(1 - dot(uh,un)^2)))
+                    pspecnum = sqrt((nu[i] + 1)*(nv[i] + 1))*(Rspec[i] + (1 - Rspec[i])*(1 - dot(uh,usun))^5)/(8*pi)*(uhdun^((nu[i]*dot(uh,uu)^2 + nv[i]*dot(uh,uv)^2)/(1 - uhdun^2)))
                 end
 
                 # add to the sum of total intensity for the observer
@@ -128,12 +130,76 @@ function _Fobs(att :: anyAttitude{T}, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uv
     return Ftotal
 end
 
+function _Fobs_preAlloc(att :: anyAttitude, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uvm :: ArrayOfVecs, Area :: Vector, nu :: Vector, nv :: Vector, Rdiff :: Vector, Rspec :: Vector, usunI :: Vector, uobsI :: ArrayOfVecs, d :: Vector, C :: Float64, rotFunc :: Function, usun, uobst, Ftotal, uh)
+
+    # rotate inertial vectors into the body frame for calculations
+    _toBodyFrame!(att,usunI,uobsI,rotFunc, usun, uobst)
+
+    for i = 1:length(Ftotal)
+        Ftotal[i] = 0
+    end
+
+    # loop through facets
+    for i = 1:length(unm)
+        un = unm[i]
+        uv = uvm[i]
+        uu = uum[i]
+
+        # loop through observers
+        for j = 1:length(uobst)
+            uobs = uobst[j]
+
+            usdun = dot3(usun,un)
+            uodun = dot3(uobs,un)
+
+            # check if facet is visible to both the observer and light source
+            check1 = usdun <= 0
+            check2 = uodun <= 0
+            visFlag = check1 | check2
+
+            if visFlag
+                F = 0
+            else
+                # calculate the half angle vector
+                # uh = (usun + uobs)./norm(usun + uobs)
+                # loop is used so that code generalizes to flatland
+                usduo = dot3(usun,uobs)
+                for k = 1:length(usun)
+                    uh[k] = (usun[k] + uobs[k])/sqrt(2 + 2*usduo)
+                end
+
+                # precalculate some dot products to save time
+                uhdun = dot3(uh,un)
+
+                # diffuse reflection
+                pdiff = ((28*Rdiff[i])/(23*pi))*(1 - Rspec[i])*(1 - (1 - usdun/2)^5)*(1 - (1 - uodun/2)^5)
+
+                # spectral reflection
+
+                # calculate numerator and account for the case where the half angle vector lines up with the normal vector
+                if uhdun≈1 #(1 - dot(uh,un)) < .00001 #
+                    pspecnum = sqrt((nu[i] + 1)*(nv[i] + 1))*(Rspec[i] + (1 - Rspec[i])*(1 - dot3(uh,usun))^5)/(8*pi)
+                else
+                    pspecnum = sqrt((nu[i] + 1)*(nv[i] + 1))*(Rspec[i] + (1 - Rspec[i])*(1 - dot3(uh,usun))^5)/(8*pi)*(uhdun^((nu[i]*dot3(uh,uu)^2 + nv[i]*dot3(uh,uv)^2)/(1 - uhdun^2)))
+                end
+
+                # add to the sum of total intensity for the observer
+                Ftotal[j] += C/(d[j]^2)*(pspecnum/(usdun + uodun - (usdun)*(uodun)) + pdiff)*(usdun)*Area[i]*(uodun)
+
+            end
+
+        end
+    end
+
+    return Ftotal
+end
 
 # handles multispectral case (Rspec and Rdiff are now arrays of vectors where the vectors are values for each frequency bin) also assumes data is generaly presented as arrays of arrays rather than matrices
+# returns a vector light intensities where the ((i-1)*binNo + j)th element of the vector corresponds to the ith observer and jth frequency bin
 function _Fobs(att :: anyAttitude{T}, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uvm :: ArrayOfVecs, Area :: Vector, nu :: Vector, nv :: Vector, Rdiff :: ArrayOfVecs, Rspec :: ArrayOfVecs, usunI :: Vector, uobsI :: ArrayOfVecs, d :: Vector, C :: Float64, rotFunc) where {T <: Real}
 
     binNo = length(Rdiff[1])
-    obsNo = length(obsI)
+    obsNo = length(uobsI)
     facetNo = length(unm)
     dim = length(usunI)
 
@@ -141,11 +207,8 @@ function _Fobs(att :: anyAttitude{T}, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uv
     (usun,uobst) = _toBodyFrame(att,usunI,uobsI,rotFunc)
     # Ftotal = Array{Float64,1}(undef,length(uobsI))
 
-    # intialize intensity array where each element of the array corresponds to each observer
-    Ftotal = Array{Array{T,1},1}(undef,obsNo)
-    for n in eachindex(Ftotal)
-        Ftotal[n] = zeros(T,binNo)
-    end
+    # intialize intensity array where each element of the array corresponds to a paritcular observer and light spectrum
+    Ftotal = zeros(T,binNo*obsNo)
 
     # initialize array for half angle vectors
     uh = Array{T,1}(undef,dim)
@@ -192,11 +255,18 @@ function _Fobs(att :: anyAttitude{T}, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uv
                     if uhdun ≈ 1 #(1 - dot(uh,un)) < .00001 #
                         pspecnum = sqrt((nu[i] + 1)*(nv[i] + 1))*(Rspec[i][k] + (1 - Rspec[i][k])*(1 - dot(uh,usun))^5)/(8*pi)
                     else
-                        pspecnum = sqrt((nu[i] + 1)*(nv[i] + 1))*(Rspec[i][k] + (1 - Rspec[i][k])*(1 - dot(uh,usun))^5)/(8*pi)*uhdun^((nu[i]*dot(uh,uu)^2 + nv[i]*dot(uh,uv)^2)/(1 - uhdun^2)))
+                        pspecnum = sqrt((nu[i] + 1)*(nv[i] + 1))*(Rspec[i][k] + (1 - Rspec[i][k])*(1 - dot(uh,usun))^5)/(8*pi)*(uhdun^((nu[i]*dot(uh,uu)^2 + nv[i]*dot(uh,uv)^2)/(1 - uhdun^2)))
                     end
 
-                    # add to the sum of total intensity for the observer
-                    Ftotal[j][k] += C/(d[j]^2)*(pspecnum/(usdun + uodun - (usdun)*(uodun)) + pdiff)*(usdun)*Area[i]*(uodun)
+                    # add to the sum of total intensity for the observer and frequency bin
+                    # temp =
+                    # if temp < 0
+                    #     @infiltrate
+                    # end
+
+                    Ftotal[(j-1)*binNo+k] += C / (d[j]^2) * (pspecnum / (usdun + uodun - (usdun) * (uodun)) + pdiff) * (usdun) * Area[i] * (uodun)
+
+
                 end
 
             end
@@ -469,4 +539,16 @@ function dFobs(att :: Vector, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uvm :: Arr
         end
     end
     return Ftotal, dFtotal #, total, dtotal
+end
+
+function _mapp(att :: anyAttitude{T}, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uvm :: ArrayOfVecs, Area :: Vector, nu :: Vector, nv :: Vector, Rdiff :: Vector{T2}, Rspec :: Vector{T2}, usunI :: Vector, uobsI :: ArrayOfVecs, d :: Vector, C :: Float64, rotFunc :: Function) where {T <: Real, T2 <: Real}
+
+    return -26.7 .- 2.5 .* log10.(_Fobs(att, unm, uum, uvm, Area, nu, nv, Rdiff, Rspec, usunI, uobsI, d, C, rotFunc)./C)
+
+end
+
+function _mapp(att :: anyAttitude{T}, unm :: ArrayOfVecs, uum :: ArrayOfVecs, uvm :: ArrayOfVecs, Area :: Vector, nu :: Vector, nv :: Vector, Rdiff :: ArrayOfVecs, Rspec :: ArrayOfVecs, usunI :: Vector, uobsI :: ArrayOfVecs, d :: Vector, C :: Float64, rotFunc :: Function) where {T <: Real, T2 <: Real}
+
+    return -26.7 .- 2.5 .* log10.(_Fobs(att, unm, uum, uvm, Area, nu, nv, Rdiff, Rspec, usunI, uobsI, d, C, rotFunc)./C)
+
 end

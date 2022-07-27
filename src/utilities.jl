@@ -143,9 +143,33 @@ function simpleSatellite(;vectorized = false)
     nv = 1000*ones(1,facetNo)
 
     # spectral and diffusion parameters
-    Rdiff = [.6*ones(1,6) .05*ones(1,4)  .6 .6] # bus, solar panel, dish #.6*ones(1,2) .05 .26*ones(1,2) .04
-    Rspec = [.26*ones(1,6) .04*ones(1,4) .275 .26]
-
+    if multiSpectral
+        binNo = 6
+    
+        BusDiff = 0.6
+        BusSpec = 0.26
+        # facU = 10
+        # facD = .25
+        busDiffMat = BusDiff .* ones(binNo, 6)
+        busSpecMat = BusSpec .* ones(binNo, 6)
+        for i = 1:2:binNo
+            busDiffMat[i, i] = 1
+            busDiffMat[i+1, i] = 0.1
+            busDiffMat[i, i+1] = 0.1
+            busDiffMat[i+1, i+1] = 1
+        
+            busSpecMat[i, i] = 1
+            busSpecMat[i+1, i] = 0.1
+            busSpecMat[i, i+1] = 0.1
+            busSpecMat[i+1, i+1] = 1
+        end
+        # bus, solar panel, dish (front, back) #.6*ones(1,2) .05 .26*ones(1,2) .04
+        Rdiff = [busDiffMat (0.05 * ones(binNo, 4)) (0.6 * ones(binNo, 1)) (0.6 * ones(binNo, 1))]
+        Rspec = [busSpecMat (0.04 * ones(binNo, 4)) (0.275 * ones(binNo, 1)) (0.26 * ones(binNo, 1))]
+    else
+        Rdiff = [0.6 * ones(1, 6) 0.05 * ones(1, 4) 0.6 0.6] # bus, solar panel, dish #.6*ones(1,2) .05 .26*ones(1,2) .04
+        Rspec = [0.26 * ones(1, 6) 0.04 * ones(1, 4) 0.275 0.26]
+    end
     ## moment of inertia calcualtions
 
     # find COM
@@ -168,8 +192,19 @@ function simpleSatellite(;vectorized = false)
         Area = Area[:]
         nu = nu[:]
         nv = nv[:]
-        Rdiff = Rdiff[:]
-        Rspec = Rspec[:]
+        if multiSpectral
+            Rdifftemp = Rdiff
+            Rspectemp = Rspec
+            Rdiff = Array{Array{Float64,1},1}(undef,facetNo)
+            Rspec = Array{Array{Float64,1},1}(undef,facetNo)
+            for i = 1:facetNo
+                Rdiff[i] = Rdifftemp[:,i]
+                Rspec[i] = Rspectemp[:,i]
+            end
+        else
+            Rdiff = Rdiff[:]
+            Rspec = Rspec[:]
+        end
         nvecstemp = nvecs
         nvecs = Array{Array{Float64,1},1}(undef,size(nvecstemp,2))
         uvecstemp = uvecs
@@ -188,9 +223,9 @@ function simpleSatellite(;vectorized = false)
     return simpleStruct, fullStruct
 end
 
-function customSatellite(objParams; vectorized = false)
+function customSatellite(objParams; multiSpectral = false, vectorized = false)
 
-    (satSimple, satFullSimple) = simpleSatellite(vectorized = vectorized )
+    (satSimple, satFullSimple) = simpleSatellite(multiSpectral = multiSpectral, vectorized = vectorized )
 
     p = fieldnames(targetObjectFull)
     objvars = Array{Any,1}(undef,length(p))
@@ -293,6 +328,23 @@ function simpleScenarioGenerator(;vectorized = false)
     return sat, satFull, scenario
 end
 
+function customScenarioGenerator(;scenParams = nothing, objParams = nothing, multiSpectral = false, vectorized = false)
+
+    if ~isnothing(scenParams)
+        scenario = customScenario(scenParams, vectorized = vectorized)
+    else
+        scenario = simpleScenario()
+    end
+
+    if ~isnothing(objParams)
+        sat, satFull = customSatellite(objParams, multiSpectral = multiSpectral, vectorized = vectorized)
+    else
+        sat, satFull = simpleSatellite(multiSpectral = multiSpectral)
+    end
+
+    return sat, satFull, scenario
+end
+
 function objectGenerator2D()
 
     obsvecs = Array{Array{Float64,1},1}(undef,2)
@@ -384,25 +436,6 @@ function scenarioGenerator2D()
     return spaceScenario(obsNo,C,obsDist,sunVec,obsVecs)
 end
 
-function customScenarioGenerator(;scenParams = nothing, objParams = nothing, vectorized = false)
-
-    (satSimple, satFullSimple) = simpleSatellite(vectorized = vectorized )
-
-    if ~isnothing(scenParams)
-        scenario = customScenario(scenParams, vectorized = vectorized)
-    else
-        scenario = simpleScenario()
-    end
-
-    if ~isnothing(objParams)
-        sat, satFull = customSatellite(objParams, vectorized = vectorized)
-    else
-        sat, satFull = simpleSatellite()
-    end
-
-    return sat, satFull, scenario
-end
-
 function attLMFIM(att, sat, scen, R, parameterization = quaternion)
 
         if any(parameterization .== [MRP GRP quaternion])
@@ -434,4 +467,9 @@ function attLMFIM(att, sat, scen, R, parameterization = quaternion)
     dhdx = ForwardDiff.jacobian(A -> _Fobs( A, sat.nvecs, sat.uvecs, sat.vvecs, sat.Areas, sat.nu, sat.nv, sat.Rdiff, sat.Rspec, scen.sunVec, scen.obsVecs, scen.d, scen.C, rotFunc), att)
 
     FIM = dhdx'*inv(R)*dhdx
+end
+
+
+function dot3(a, b)
+    return BLAS.dot(3,a,1,b,1)
 end

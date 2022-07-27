@@ -3,6 +3,8 @@ const ArrayofMats{T<:Real} = Array{M,1} where {M <: Matrix{T}}
 const VecOfArrayOfVecs{T<:Real} = Vector{Vector{Vector{T}}}
 const MatOrVecs{T <: Real} = Union{Matrix{T},ArrayOfVecs{T}}
 const MatOrVec{T <: Real} = Union{Matrix{T},Vector{T}}
+const Vec{T <: Real} = AbstractVector{T}
+const Mat{T <: Real} = AbstractMatrix{T}
 
 struct targetObject
     facetNo :: Int64
@@ -12,8 +14,8 @@ struct targetObject
     uvecs :: MatOrVecs
     nu :: MatOrVec
     nv :: MatOrVec
-    Rdiff :: MatOrVec
-    Rspec :: MatOrVec
+    Rdiff :: Union{MatOrVec, MatOrVecs}
+    Rspec :: Union{MatOrVec, MatOrVecs}
     J :: Matrix
     bodyFrame :: MatOrVecs
     targetObject() = new()
@@ -30,8 +32,8 @@ struct targetObjectFull
     uvecs :: MatOrVecs
     nu :: MatOrVec
     nv :: MatOrVec
-    Rdiff :: MatOrVec
-    Rspec :: MatOrVec
+    Rdiff :: Union{MatOrVec, MatOrVecs}
+    Rspec :: Union{MatOrVec, MatOrVecs}
     J :: Matrix
     bodyFrame :: MatOrVecs
     targetObjectFull() = new()
