@@ -1,5 +1,4 @@
-function simpleSatellite(;vectorized = false)
-
+function simpleSatellite(;multiSpectral = false, vectorized = false)
 
     ## satellite bus
     # Bus measures 1.75 x 1.7 x 1.8 m.  Difficult to discern which dimension
@@ -101,7 +100,7 @@ function simpleSatellite(;vectorized = false)
     p_dish = [zeros(length(tht),1).+offset   sin.(tht)   cos.(tht);
                 zeros(length(tht),1).-offset sin.(tht)   cos.(tht)]
 
-    for i = 1:size(p_dish,1)
+    for i = axes(p_dish,1)#1:size(p_dish,1)
         p_dish[i,:] += d_c
     end
 
@@ -154,8 +153,8 @@ function simpleSatellite(;vectorized = false)
         busSpecMat = BusSpec .* ones(binNo, 6)
         for i = 1:2:binNo
             busDiffMat[i, i] = 1
-            busDiffMat[i+1, i] = 0.1
-            busDiffMat[i, i+1] = 0.1
+            busDiffMat[i+1, i] = 0.8
+            busDiffMat[i, i+1] = 0.8
             busDiffMat[i+1, i+1] = 1
         
             busSpecMat[i, i] = 1
@@ -163,6 +162,7 @@ function simpleSatellite(;vectorized = false)
             busSpecMat[i, i+1] = 0.1
             busSpecMat[i+1, i+1] = 1
         end
+        # @infiltrate
         # bus, solar panel, dish (front, back) #.6*ones(1,2) .05 .26*ones(1,2) .04
         Rdiff = [busDiffMat (0.05 * ones(binNo, 4)) (0.6 * ones(binNo, 1)) (0.6 * ones(binNo, 1))]
         Rspec = [busSpecMat (0.04 * ones(binNo, 4)) (0.275 * ones(binNo, 1)) (0.26 * ones(binNo, 1))]
@@ -218,28 +218,213 @@ function simpleSatellite(;vectorized = false)
             vvecs[i] = vvecstemp[:,i]
         end
     end
-    simpleStruct = targetObject(facetNo,Area,nvecs,vvecs,uvecs,nu,nv,Rdiff,Rspec,J,bodyFrame)
+    simpleStruct = targetObject(facetNo,Area,nvecs,vvecs,uvecs,nu,nv,Rdiff,Rspec,J)
 
     return simpleStruct, fullStruct
 end
 
-function customSatellite(objParams; multiSpectral = false, vectorized = false)
+function flatPlate3D(; multiSpectral=false, vectorized=false)
 
-    (satSimple, satFullSimple) = simpleSatellite(multiSpectral = multiSpectral, vectorized = vectorized )
+    l = 1
 
-    p = fieldnames(targetObjectFull)
-    objvars = Array{Any,1}(undef,length(p))
+    P = [-l/2 -l/2 0;
+        -l/2 l/2 0;
+        l/2 l/2 0;
+        l/2 -l/2 0]
 
-    for i = 1:length(p)
-        if haskey(objParams,p[i])
-            objvars[i] = objParams[p[i]]
+    K = [[1 2 3 4],
+        [1 4 3 2]]
+
+    facetVerticesList = K
+    vertices = P
+    facetNo = length(K)
+
+    Area = [l * l, l * l]
+
+    m = 10
+    J = diagm([(1 / 12) * m * l^2, (1 / 12) * m * l^2, (1 / 12) * m * (l^2 + l^2)])
+
+    nvecs = zeros(3, length(K))
+    uvecs = zeros(3, length(K))
+    vvecs = zeros(3, length(K))
+
+    for i = 1:facetNo
+        vec1 = P[K[i][2], :] - P[K[i][1], :]
+        vec2 = P[K[i][3], :] - P[K[i][2], :]
+        nvecs[:, i] = cross(vec1, vec2) ./ norm(cross(vec1, vec2))
+        vvecs[:, i] = vec1 ./ norm(vec1)
+        uvecs[:, i] = cross(nvecs[:, i], vvecs[:, i])
+    end
+
+    bodyFrame = Matrix(1.0I, 3, 3)
+
+    # in plane parameters
+    nu = 1000 * ones(1, facetNo)
+    nv = 1000 * ones(1, facetNo)
+
+    Rdiff = [0.6 0.6] # bus, solar panel, dish #.6*ones(1,2) .05 .26*ones(1,2) .04
+    Rspec = [0.275 0.26]
+
+    fullStruct = targetObjectFull(facetNo, vertices, facetVerticesList, Area, nvecs,
+        vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame)
+
+    if !vectorized
+        Area = Area[:]
+        nu = nu[:]
+        nv = nv[:]
+        if multiSpectral
+            Rdifftemp = Rdiff
+            Rspectemp = Rspec
+            Rdiff = Array{Array{Float64,1},1}(undef, facetNo)
+            Rspec = Array{Array{Float64,1},1}(undef, facetNo)
+            for i = 1:facetNo
+                Rdiff[i] = Rdifftemp[:, i]
+                Rspec[i] = Rspectemp[:, i]
+            end
         else
-            objvars[i] = getproperty(satFullSimple,p[i])
+            Rdiff = Rdiff[:]
+            Rspec = Rspec[:]
+        end
+        nvecstemp = nvecs
+        nvecs = Array{Array{Float64,1},1}(undef, size(nvecstemp, 2))
+        uvecstemp = uvecs
+        uvecs = Array{Array{Float64,1},1}(undef, size(nvecstemp, 2))
+        vvecstemp = vvecs
+        vvecs = Array{Array{Float64,1},1}(undef, size(nvecstemp, 2))
+
+        for i = 1:facetNo
+            nvecs[i] = nvecstemp[:, i]
+            uvecs[i] = uvecstemp[:, i]
+            vvecs[i] = vvecstemp[:, i]
         end
     end
 
-    sat = spaceScenario(objvars[1],objvars[4:end]...)
-    satFull = spaceScenario(objvars...)
+    simpleStruct = targetObject(facetNo, Area, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J)
+
+    return simpleStruct, fullStruct
+
+end
+
+function flatPlate3D_missing_section(missingAreaFraction; multiSpectral=false, vectorized=false)
+
+    l = 1
+    l_rm = sqrt(missingAreaFraction*l^2)
+
+    P = [-l/2 -l/2 0
+        -l/2 l/2 0
+        l/2 l/2 0
+        l/2 -l/2 0
+        -l_rm/2 -l_rm/2 0
+        -l_rm/2 l_rm/2 0
+        l_rm/2 l_rm/2 0
+        l_rm/2 -l_rm/2 0]
+
+    K = [[1 2 3 4],
+        [1 4 3 2],
+        [5 6 7 8]]
+
+    facetVerticesList = K
+    vertices = P
+    facetNo = length(K)
+
+    Area = [l^2, l^2 - l_rm^2, l_rm^2]
+
+    m = 10
+    J = diagm([(1 / 12) * m * l^2, (1 / 12) * m * l^2, (1 / 12) * m * (l^2 + l^2)])
+
+    nvecs = zeros(3, length(K))
+    uvecs = zeros(3, length(K))
+    vvecs = zeros(3, length(K))
+
+    # @infiltrate
+    for i = 1:facetNo
+        vec1 = P[K[i][2], :] - P[K[i][1], :]
+        vec2 = P[K[i][3], :] - P[K[i][2], :]
+        nvecs[:, i] = cross(vec1, vec2) ./ norm(cross(vec1, vec2))
+        vvecs[:, i] = vec1 ./ norm(vec1)
+        uvecs[:, i] = cross(nvecs[:, i], vvecs[:, i])
+    end
+    # @infiltrate
+
+    bodyFrame = Matrix(1.0I, 3, 3)
+
+    # in plane parameters
+    nu = 1000 * ones(1, facetNo)
+    nv = 1000 * ones(1, facetNo)
+
+    Rdiff = [0.6 0.6 0.1] # bus, solar panel, dish #.6*ones(1,2) .05 .26*ones(1,2) .04
+    Rspec = [0.275 0.26 0.4]
+
+    fullStruct = targetObjectFull(facetNo, vertices, facetVerticesList, Area, nvecs,
+        vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame)
+
+    if !vectorized
+        Area = Area[:]
+        nu = nu[:]
+        nv = nv[:]
+        if multiSpectral
+            Rdifftemp = Rdiff
+            Rspectemp = Rspec
+            Rdiff = Array{Array{Float64,1},1}(undef, facetNo)
+            Rspec = Array{Array{Float64,1},1}(undef, facetNo)
+            for i = 1:facetNo
+                Rdiff[i] = Rdifftemp[:, i]
+                Rspec[i] = Rspectemp[:, i]
+            end
+        else
+            Rdiff = Rdiff[:]
+            Rspec = Rspec[:]
+        end
+        nvecstemp = nvecs
+        nvecs = Array{Array{Float64,1},1}(undef, size(nvecstemp, 2))
+        uvecstemp = uvecs
+        uvecs = Array{Array{Float64,1},1}(undef, size(nvecstemp, 2))
+        vvecstemp = vvecs
+        vvecs = Array{Array{Float64,1},1}(undef, size(nvecstemp, 2))
+
+        for i = 1:facetNo
+            nvecs[i] = nvecstemp[:, i]
+            uvecs[i] = uvecstemp[:, i]
+            vvecs[i] = vvecstemp[:, i]
+        end
+    end
+
+    simpleStruct = targetObject(facetNo, Area, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J)
+
+    return simpleStruct, fullStruct
+
+end
+
+function customSatellite(objParams; multiSpectral=false, vectorized=false)
+
+    (satSimple, satFullSimple) = simpleSatellite(multiSpectral=multiSpectral, vectorized=vectorized)
+
+    p = fieldnames(targetObject)
+    objvars = Array{Any,1}(undef, length(p))
+
+    for i = 1:lastindex(p)
+        if haskey(objParams, p[i])
+            objvars[i] = objParams[p[i]]
+        else
+            objvars[i] = getproperty(satSimple, p[i])
+        end
+    end
+
+    sat = targetObject(objvars...)
+
+
+
+    p = fieldnames(targetObjectFull)
+    objvars = Array{Any,1}(undef, length(p))
+
+    for i = 1:lastindex(p)
+        if haskey(objParams, p[i])
+            objvars[i] = objParams[p[i]]
+        else
+            objvars[i] = getproperty(satFullSimple, p[i])
+        end
+    end
+    satFull = targetObjectFull(objvars...)
 
     return sat, satFull
 end
@@ -253,8 +438,8 @@ function simpleScenario(;vectorized = false)
     obsNo = 4
 
     # distance from observer to RSO
-    # obsDist = 35000*1000*ones(1,obsNo)
-    obsDist = 1*1000*ones(1,obsNo)
+    obsDist = 35000*1000*ones(1,obsNo) #Geo
+    # obsDist = 1*1000*ones(1,obsNo) #Leo
 
     #body vectors from rso to observer (inertial)
     r = sqrt(2)/2
@@ -283,6 +468,41 @@ function simpleScenario(;vectorized = false)
     return spaceScenario(obsNo,C,obsDist,sunVec,obsVecs)
 end
 
+function simpleScenario2D(;vectorized = false)
+
+    # C -- sun power per square meter
+    C = 455.0 #W/m^2
+
+    # number of observers
+    obsNo = 1
+
+    # distance from observer to RSO
+    # obsDist = 35000*1000*ones(1,obsNo)
+    obsDist = 1*1000*ones(1,obsNo)
+
+    #body vectors from rso to observer (inertial)
+    r = sqrt(2)/2
+    obsVecs = [1  r  r
+               0  r -r]
+
+    obsVecs = obsVecs[:,1:obsNo]
+
+    # usun -- vector from rso to sun (inertial)
+    sunVec = [1.0; 0]
+
+    if !vectorized
+        obsvectemp = obsVecs
+        obsVecs = Array{Array{Float64,1},1}(undef,size(obsvectemp,2))
+
+        for i = 1:obsNo
+            obsVecs[i] = obsvectemp[:,i]
+        end
+
+        obsDist = obsDist[:]
+    end
+    return spaceScenario(obsNo,C,obsDist,sunVec,obsVecs)
+end
+
 function customScenario(scenParams; vectorized = false)
 
     scenarioSimple = simpleScenario(vectorized  = vectorized)
@@ -290,7 +510,7 @@ function customScenario(scenParams; vectorized = false)
     p = fieldnames(spaceScenario)
     scenvars = Array{Any,1}(undef,length(p))
 
-    for i = 1:length(p)
+    for i = 1:lastindex(p)
         if haskey(scenParams,p[i])
             scenvars[i] = scenParams[p[i]]
         else
@@ -298,25 +518,29 @@ function customScenario(scenParams; vectorized = false)
         end
     end
 
-    # set observer number to match the number of observer vectors
-    if typeof(scenvars[5]) == Vector{Vector{Float64}}
-        scenvars[1] = length(scenvars[5])
-        dtemp = zeros(length(scenvars[5]))
-        if length(scenvars[3]) < length(scenvars[5])
+    if haskey(scenParams,:obsVecs) && ~haskey(scenParams,:obsNo)
+        # set observer number to match the number of observer vectors
+        if typeof(scenvars[5]) == Vector{Vector{Float64}}
+            scenvars[1] = length(scenvars[5])
+            dtemp = zeros(length(scenvars[5]))
+            if length(scenvars[3]) < length(scenvars[5])
+                dtemp[1:length(scenvars[3])] = scenvars[3]
+                dtemp[length(scenvars[3])+1:end] .= scenvars[3][1]
+            else
+                dtemp[1:length(scenvars[5])] = scenvars[3][1:length(scenvars[5])]
+            end
+            scenvars[3] = dtemp
+        elseif typeof(scenvars[5]) == Matrix{Float64}
+            scenvars[1] = size(scenvars[5],2)
+            dtemp = zeros(size(scenvars[5],2))
             dtemp[1:length(scenvars[3])] = scenvars[3]
             dtemp[length(scenvars[3])+1:end] .= scenvars[3][1]
-        else
-            dtemp[1:length(scenvars[5])] = scenvars[3][1:length(scenvars[5])]
+            scenvars[3] = dtemp
         end
-        scenvars[3] = dtemp
-    elseif typeof(scenvars[5]) == Matrix{Float64}
-        scenvars[1] = size(scenvars[5],2)
-        dtemp = zeros(size(scenvars[5],2))
-        dtemp[1:length(scenvars[3])] = scenvars[3]
-        dtemp[length(scenvars[3])+1:end] .= scenvars[3][1]
-        scenvars[3] = dtemp
+    elseif haskey(scenParams,:obsNo) && ~haskey(scenParams,:obsVecs)
+        scenvars[5] = getproperty(scenarioSimple,p[5])[1:scenParams[:obsNo]]
     end
-
+    # @infiltrate
     scenario = spaceScenario(scenvars...)
 
     return scenario
@@ -399,15 +623,68 @@ function objectGenerator2D()
     Jy = (L[2]*L[1]^3)/12
     J = [Jx 0 ; 0 Jy]
 
-    return targetObject(facetNo, Areas, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame), targetObjectFull(facetNo, verts, vertList, Area, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame)
+    return targetObject(facetNo, Areas, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J), targetObjectFull(facetNo, verts, vertList, Area, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J, bodyFrame)
 end
 
-function scenarioGenerator2D()
+function objectGenerator2D(vertices, materialProperties)
+
+    facetNo = length(vertices)
+
+    nu = materialProperties[1]
+    Rdiff = materialProperties[2]
+    Rspec = materialProperties[3]
+
+    #unused but targetobject struct is general for 3D as well, and there needs to be something in this field
+    nv = similar(nu)
+
+    # in-plane geometry
+    # side normals
+    nvecs = Array{Array{Float64,1},1}(undef, facetNo)
+    uvecs = Array{Array{Float64,1},1}(undef, facetNo)
+    Areas = Array{Float64,1}(undef, facetNo)
+    # create empty unused array for vvecs
+    vvecs = Array{Array{Float64,1},1}(undef, 0)
+    J = 0
+    rho = 1 # density of material (made up)
+
+    for i = 1:facetNo
+
+        # compute facet parameters from vertices
+
+        # get relevant vertices for current facet
+        if i != facetNo
+            u = vertices[i+1]
+        else
+            # last facet wraps back around to first vertex
+            u = vertices[1]
+        end
+        v = vertices[i]
+
+        temp = u - v
+        # compute facet areas and vectors from 
+        Areas[i] = norm(temp)
+        uvecs[i] = temp ./ Areas[i]
+        temp = reverse(uvecs[i])
+        temp[1] = -temp[1]
+        nvecs[i] = temp
+
+        # compute angular momentum by summing up the momentum of traingles formed by the vertices and center
+        J += rho*norm(cross([u;0],[v;0]))/12*(dot(u,u) + dot(v,v) + dot(u,v))
+
+    end
+
+    return targetObject(facetNo, Areas, nvecs, vvecs, uvecs, nu, nv, Rdiff, Rspec, J)
+end
+
+# redundant code, bbut don't want to chase down any possible use cases, so left for backwards compatibility
+function scenarioGenerator2D(; obsNo = 2)
+
+    vectorized = false
     # C -- sun power per square meter
     C = 455.0 #W/m^2
 
     # number of observers
-    obsNo = 2
+    # obsNo = 1
 
     # distance from observer to RSO
     # obsDist = 35000*1000*ones(1,obsNo)
@@ -466,10 +743,12 @@ function attLMFIM(att, sat, scen, R, parameterization = quaternion)
 
     dhdx = ForwardDiff.jacobian(A -> _Fobs( A, sat.nvecs, sat.uvecs, sat.vvecs, sat.Areas, sat.nu, sat.nv, sat.Rdiff, sat.Rspec, scen.sunVec, scen.obsVecs, scen.d, scen.C, rotFunc), att)
 
-    FIM = dhdx'*inv(R)*dhdx
-end
+    # dhdx = dFobs(att, sat.nvecs, sat.uvecs, sat.vvecs, sat.Areas, sat.nu, sat.nv, sat.Rdiff, sat.Rspec, scen.sunVec, scen.obsVecs, scen.d, scen.C, dDotFunc, rotFunc, quaternion)
 
+    return dhdx'*inv(R)*dhdx
+end
 
 function dot3(a, b)
     return BLAS.dot(3,a,1,b,1)
 end
+
