@@ -26,3 +26,4 @@ Manifest.toml
 src/depreciated
 Manifest.toml
 src/legacyCode.jl
+profile.pb.gz
